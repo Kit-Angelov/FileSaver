@@ -16,13 +16,14 @@ var (
 )
 
 func Init(
+    sentryURL string,
     traceHandle io.Writer,
     infoHandle io.Writer,
     warningHandle io.Writer,
     errorHandle io.Writer,
     fatalHandle io.Writer) {
 
-    Raven, _ = raven.New("https://28f063bd14d7435dbdcc070467b97978:f25ee6d7154441e798d7738e2e94a29b@sentry.io/1267596")
+    Raven, _ = raven.New(sentryURL)
     // Raven, _ = raven.New("")
     // raven.SetDSN()
 
