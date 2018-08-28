@@ -2,7 +2,9 @@ package logger
 
 import (
     "io"
+    "os"
     "log"
+    "path/filepath"
     "github.com/getsentry/raven-go"
 )
 
@@ -15,13 +17,26 @@ var (
     Raven   *raven.Client
 )
 
-func Init(
-    sentryURL string,
-    traceHandle io.Writer,
-    infoHandle io.Writer,
-    warningHandle io.Writer,
-    errorHandle io.Writer,
-    fatalHandle io.Writer) {
+func Init(logDir, sentryURL string) {
+    if _, err := os.Stat(logDir); os.IsNotExist(err) {
+        err := os.MkdirAll(logDir, 0777)
+        if err != nil {
+            panic(err)
+        }
+    }
+    errLogFile, err := os.OpenFile(filepath.Join(logDir, "error.log"), os.O_CREATE | os.O_APPEND | os.O_RDWR, 0666)
+    if err != nil {
+        panic(err)
+    }
+    infoLogFile, err := os.OpenFile(filepath.Join(logDir, "info.log"), os.O_CREATE | os.O_APPEND | os.O_RDWR, 0666)
+    if err != nil {
+        panic(err)
+    }
+    traceHandle := os.Stdout
+    infoHandle := io.MultiWriter(os.Stdout, infoLogFile)
+    warningHandle := io.MultiWriter(os.Stdout, infoLogFile)
+    errorHandle := io.MultiWriter(os.Stderr, errLogFile)
+    fatalHandle := io.MultiWriter(os.Stderr, errLogFile)
 
     Raven, _ = raven.New(sentryURL)
     // Raven, _ = raven.New("")

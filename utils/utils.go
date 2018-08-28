@@ -22,6 +22,7 @@ func GenPath(mediaPath, filename string) (string, string, uuid.UUID) {
 
 	err := os.MkdirAll(absPath, 0777)
 	if err != nil {
+		logger.Raven.CaptureError(err, nil)
 		logger.Error.Println(err)
 	}
 

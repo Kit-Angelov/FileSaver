@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"errors"
 	"strings"
 	"net/http"
 	"net/url"
@@ -16,12 +17,14 @@ import (
 )
 
 var (
-	SERVER_NEW_DOC      string = "http://192.168.2.243:8000/api/v1/me/documents/new_doc/"
-	SERVER_TOKEN_VERIFY string = "http://192.168.2.243:8000/rest-auth/api-token-verify/"
+	MAIN_SERVER_HOST    string = "http://localhost:8000"
+	API_NEW_DOC         string = "/api/v1/me/documents/new_doc/"
+	API_TOKEN_VERIFY    string = "/rest-auth/api-token-verify/"
 	MEDIA_PATH          string
 	HOST                string = "127.0.0.1"
 	PORT                string = "8080"
 	SENTRY_URL          string = ""
+	LOG_DIR             string = "./"
 )
 
 type tokenStruct struct {
@@ -29,10 +32,12 @@ type tokenStruct struct {
 }
 
 func init() {
+	flag.StringVar(&MAIN_SERVER_HOST, "SH", MAIN_SERVER_HOST, "Хост главного сервера")
 	flag.StringVar(&MEDIA_PATH, "mp", MEDIA_PATH, "Путь до директории media")
 	flag.StringVar(&HOST, "H", HOST, "Хост")
 	flag.StringVar(&PORT, "P", PORT, "Порт")
-	flag.StringVar(&SENTRY_URL, "s", "sentry url")
+	flag.StringVar(&SENTRY_URL, "s", SENTRY_URL, "sentry url")
+	flag.StringVar(&LOG_DIR, "log", LOG_DIR, "Директория для логов")
 }
 
 // notificate main server about new file
@@ -45,11 +50,12 @@ func notifiMainServerNewFile(token, guid, name, pathToFile string) bool {
 	body := values.Encode()
 
 	client := &http.Client{}
-	req, _ := http.NewRequest("POST", SERVER_NEW_DOC, strings.NewReader(body))
+	req, _ := http.NewRequest("POST", fmt.Sprintf("%s%s", MAIN_SERVER_HOST, API_NEW_DOC), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	res, err := client.Do(req)
 	if err != nil {
+		logger.Raven.CaptureError(err, nil)
 		logger.Error.Println(err)
 		return false
 	}
@@ -61,15 +67,23 @@ func notifiMainServerNewFile(token, guid, name, pathToFile string) bool {
 
 // verification token with main server
 func verifyToken(token string) bool {
-	r, err := http.PostForm(SERVER_TOKEN_VERIFY, url.Values{"token": {token}})
+	r, err := http.PostForm(fmt.Sprintf("%s%s", MAIN_SERVER_HOST, API_TOKEN_VERIFY), url.Values{"token": {token}})
 	if err != nil {
+		logger.Raven.CaptureError(err, nil)
 		logger.Error.Println(err)
+		return false
+	}
+	fmt.Println(r.StatusCode)
+	if r.StatusCode != 200 {
+		logger.Raven.CaptureError(errors.New("invalid token"), nil)
+		logger.Error.Println("invalid token")
 		return false
 	}
 	defer r.Body.Close()
 
 	body_byte, err := ioutil.ReadAll(r.Body)
 	if err != nil {
+		logger.Raven.CaptureError(err, nil)
 		logger.Error.Println(err)
 		return false
 	}
@@ -87,8 +101,9 @@ func fileSaver(w http.ResponseWriter, r *http.Request) {
 	verify := verifyToken(token)
 
 	if verify == false {
-		fmt.Fprintln(w, "invalid token")
-		logger.Error.Println("invalid token")
+		fmt.Fprintln(w, "not verify")
+		logger.Raven.CaptureError(errors.New("not verify"), nil)
+		logger.Error.Println("not verify")
 		return
 	}
 
@@ -98,6 +113,7 @@ func fileSaver(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		fmt.Fprintln(w, err)
+		logger.Raven.CaptureError(err, nil)
 		logger.Error.Println(err)
 		return
 	}
@@ -113,6 +129,7 @@ func fileSaver(w http.ResponseWriter, r *http.Request) {
 	out, err := os.Create(pathToFile)
 	if err != nil {
 		fmt.Fprintln(w, err)
+		logger.Raven.CaptureError(err, nil)
 		logger.Error.Println(err)
 		return
 	}
@@ -122,6 +139,7 @@ func fileSaver(w http.ResponseWriter, r *http.Request) {
 	// write the content from POST to the file
 	_, err = io.Copy(out, file)
 	if err != nil {
+		logger.Raven.CaptureError(err, nil)
 		logger.Error.Println(err)
 		fmt.Fprintln(w, err)
 		return
@@ -137,15 +155,16 @@ func fileSaver(w http.ResponseWriter, r *http.Request) {
 
 
 func main() {
-	// init logger
-	logger.Init(SENTRY_URL, os.Stdout, os.Stdout, os.Stdout, os.Stderr, os.Stderr)
-	logger.Info.Println("START APP")
-
 	// parse args
 	flag.Parse()
+	// init logger
+	logger.Init(LOG_DIR, SENTRY_URL)
+	logger.Info.Println("START APP")
+
 	logger.Info.Println("MEDIA PATH: ", MEDIA_PATH)
 	logger.Info.Println("HOST: ", HOST)
 	logger.Info.Println("PORT: ", PORT)
+	logger.Info.Println("MAIN_SERVER_HOST: ", MAIN_SERVER_HOST)
 
 	// check exiting MEDIA PATH
 	if _, err := os.Stat(MEDIA_PATH); os.IsNotExist(err) {
@@ -159,5 +178,5 @@ func main() {
 	s.HandleFunc("/upload/", fileSaver).Methods("POST") // Handle the incoming file 
 	http.Handle("/", r)
 	// http.Handle("/", http.FileServer(http.Dir(dir)))
-	logger.Fatal.Println(http.ListenAndServe(fmt.Sprintf(":%s", PORT), nil))
+	logger.Fatal.Println(http.ListenAndServe(fmt.Sprintf("%s:%s", HOST, PORT), nil))
 }
