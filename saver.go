@@ -133,6 +133,7 @@ func fileSaver(w http.ResponseWriter, r *http.Request) {
 		logger.Error.Println(err)
 		return
 	}
+	os.Chmod(pathToFile, 0777)
 
 	defer out.Close()
 
